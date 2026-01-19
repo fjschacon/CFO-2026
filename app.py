@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import json
 import pypdf
 import time
+import re # Importante para limpar o JSON
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
@@ -18,6 +19,8 @@ st.set_page_config(
 
 # --- 2. API & SEGURANÇA ---
 MY_API_KEY = "AIzaSyAetO0Ax1LjcR4Q9_-q50jO6w-5Na49WoU"
+
+# Configurações para PERMITIR conteúdo policial/criminal sem bloqueio
 SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -28,82 +31,59 @@ SAFETY_SETTINGS = [
 try:
     genai.configure(api_key=MY_API_KEY)
 except:
-    pass # Silencia erro inicial para não assustar
+    pass 
 
 # --- 3. DESIGN SYSTEM (CSS AVANÇADO) ---
 st.markdown("""
 <style>
-    /* Fundo Geral */
-    .stApp {background-color: #f8f9fa;}
+    .stApp {background-color: #f4f6f9;}
     
     /* Sidebar */
     [data-testid="stSidebar"] {
-        background-color: #00274c;
+        background-color: #0d1b2a;
         color: white;
     }
-    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
-        color: #ffffff !important;
-    }
     
-    /* Cards de Tarefas */
+    /* Cards */
     .task-card {
         background-color: white;
         padding: 20px;
-        border-radius: 15px;
-        border-left: 8px solid #00274c; /* Azul PM */
-        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
-        transition: transform 0.2s;
+        border-radius: 12px;
+        border-left: 6px solid #003366;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        margin-bottom: 15px;
+        transition: 0.3s;
     }
-    .task-card:hover {
-        transform: scale(1.01);
-    }
+    .task-card:hover { transform: translateY(-2px); }
     
-    /* Área de Quiz */
+    /* Quiz */
     .quiz-container {
-        background: linear-gradient(135deg, #ffffff 0%, #e3f2fd 100%);
-        padding: 25px;
-        border-radius: 15px;
-        border: 1px solid #bbdefb;
-        margin-top: 20px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        background: #e3f2fd;
+        padding: 20px;
+        border-radius: 12px;
+        border: 1px solid #90caf9;
+        margin-top: 15px;
     }
     
-    /* Área de Reforço (Alerta) */
+    /* Reforço */
     .reforco-container {
-        background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
-        padding: 25px;
-        border-radius: 15px;
+        background: #fff3e0;
+        padding: 20px;
+        border-radius: 12px;
         border: 1px solid #ffcc80;
-        margin-top: 20px;
-        color: #e65100;
+        margin-top: 15px;
     }
     
     /* Botões */
     .stButton>button {
         width: 100%;
-        border-radius: 10px;
+        border-radius: 8px;
         font-weight: 600;
-        height: 50px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-    }
-    
-    /* Métricas */
-    div[data-testid="metric-container"] {
-        background-color: white;
-        border-radius: 10px;
-        padding: 15px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        border: 1px solid #eee;
+        height: 45px;
     }
     
     /* Títulos */
-    h1, h2, h3 {
-        font-family: 'Helvetica Neue', sans-serif;
-        color: #00274c;
-        font-weight: 800;
-    }
+    h1, h2, h3 { color: #00274c; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -119,39 +99,73 @@ def extract_text_from_pdf(files):
             except: pass
     return text
 
+def limpar_json_inteligente(texto):
+    """Usa Regex para extrair JSON mesmo se houver texto em volta"""
+    if not texto: return None
+    try:
+        # Tenta achar o padrão de lista [...] ou objeto {...}
+        padrao = r'\[.*\]|\{.*\}'
+        match = re.search(padrao, texto.replace('\n', ' '), re.DOTALL)
+        
+        if match:
+            json_str = match.group()
+            return json.loads(json_str)
+        else:
+            # Tenta limpeza bruta se o regex falhar
+            clean = texto.replace("```json", "").replace("```", "").strip()
+            return json.loads(clean)
+    except:
+        return None
+
 def gerar_ia_blindada(prompt):
-    """Tenta conectar usando múltiplos modelos para furar bloqueio"""
+    """Tenta conectar usando múltiplos modelos e configurações de segurança"""
     modelos = ['gemini-1.5-flash', 'gemini-pro', 'gemini-1.0-pro']
+    
     for m in modelos:
         try:
             model = genai.GenerativeModel(m)
+            # Passa safety_settings para evitar bloqueio em temas da polícia
             resp = model.generate_content(prompt, safety_settings=SAFETY_SETTINGS)
             if resp.text: return resp.text
-        except: continue
+        except: 
+            continue
     return None
-
-def limpar_json(texto):
-    if not texto: return None
-    try:
-        clean = texto.replace("```json", "").replace("```", "").strip()
-        return json.loads(clean)
-    except: return None
 
 def gerar_simulado(materia, topico, qtd=6, ctx=""):
     prompt = f"""
-    Aja como banca VUNESP (Barro Branco).
-    Crie JSON com {qtd} questões múltipla escolha: {materia} ({topico}).
-    Nível: Difícil. Contexto: {ctx[:5000]}
-    JSON: [{{ "pergunta": "...", "opcoes": ["A)...", "B)..."], "correta": 0, "comentario": "..." }}]
+    Aja como examinador da VUNESP (Barro Branco).
+    Crie um JSON com {qtd} questões de múltipla escolha sobre {materia} ({topico}).
+    Nível: Difícil. 
+    Contexto (Provas Antigas): {ctx[:3000]}
+    
+    IMPORTANTE: Retorne APENAS o JSON puro, sem markdown ou texto extra.
+    Formato:
+    [
+        {{
+            "pergunta": "Enunciado da questão...",
+            "opcoes": ["A) Alternativa 1", "B) Alternativa 2", "C) Alternativa 3", "D) Alternativa 4"],
+            "correta": 0,
+            "comentario": "Explicação detalhada."
+        }}
+    ]
     """
     res = gerar_ia_blindada(prompt)
-    return limpar_json(res) or []
+    if not res: 
+        st.error("Erro de Conexão: A IA não retornou dados. Verifique a internet.")
+        return []
+        
+    dados = limpar_json_inteligente(res)
+    if not dados:
+        st.warning("Erro de Formato: A IA respondeu, mas não gerou as questões corretamente. Tente de novo.")
+        return []
+        
+    return dados
 
 def gerar_reforco(erros):
     txt = " ".join(erros)
-    prompt = f"Gere 2 questões REFORÇO (JSON) sobre erros: {txt}. Formato VUNESP."
+    prompt = f"Gere 2 questões REFORÇO (JSON puro) sobre estes erros: {txt}. Formato igual ao anterior."
     res = gerar_ia_blindada(prompt)
-    return limpar_json(res) or []
+    return limpar_json_inteligente(res) or []
 
 def get_cronograma():
     return {
@@ -172,14 +186,15 @@ if 'data_prova' not in st.session_state: st.session_state.data_prova = None
 
 # --- 6. SIDEBAR (PERFIL) ---
 with st.sidebar:
-    st.markdown("### 🛡️ Central do Aluno")
+    st.markdown("### 👮‍♂️ Central do Aluno")
     st.info("**Flavio Chacon** | CFO 2026")
     
     # Status Conexão
     if st.button("🔄 Testar Rede"):
-        res = gerar_ia_blindada("Oi")
-        if res: st.success("Rede OK!")
-        else: st.error("Rede Bloqueada! Use 4G.")
+        with st.spinner("Pingando Google..."):
+            res = gerar_ia_blindada("Teste")
+            if res: st.success("Rede OK! ✅")
+            else: st.error("Bloqueio Detectado! 🚫")
     
     st.divider()
     
@@ -187,13 +202,14 @@ with st.sidebar:
     if not st.session_state.db_quiz.empty:
         acc = st.session_state.db_quiz['Acertos'].sum()
         tot = st.session_state.db_quiz['Total'].sum()
-        st.metric("Precisão Global", f"{(acc/tot)*100:.0f}%")
+        if tot > 0:
+            st.metric("Precisão Global", f"{(acc/tot)*100:.0f}%")
     
     if st.session_state.data_prova:
         dias = (st.session_state.data_prova - date.today()).days
         st.metric("⏳ Dias p/ Prova", dias)
     else:
-        st.warning("Sem data definida")
+        st.caption("Sem data definida. Vá em 'Config' para subir o edital.")
 
 # --- 7. ÁREA PRINCIPAL (HEADER) ---
 st.title("Painel de Comando")
@@ -202,30 +218,28 @@ st.title("Painel de Comando")
 col_a, col_b, col_c, col_d = st.columns(4)
 questoes_hoje = len(st.session_state.db_quiz[st.session_state.db_quiz['Data'] == date.today()])
 col_a.metric("Questões Hoje", questoes_hoje)
-col_b.metric("Redações", "0") # Placeholder para futuro
+col_b.metric("Redações", "0") 
 col_c.metric("Treinos TAF", len(st.session_state.db_taf))
-col_d.metric("Foco", "Alta Performance")
+col_d.metric("Status", "Operacional")
 
 st.markdown("---")
 
 # --- 8. ABAS REORGANIZADAS ---
-abas = st.tabs(["📅 Cronograma Tático", "📚 Banco de Questões", "📝 Redação Pro", "💪 TAF Monitor", "📊 Dashboard", "⚙️ Config/Edital"])
+abas = st.tabs(["📅 Cronograma", "📚 Questões", "📝 Redação", "💪 TAF", "📊 Dashboard", "⚙️ Config"])
 
 # === ABA 1: CRONOGRAMA ===
 with abas[0]:
     hj = datetime.now().weekday()
     dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
     
-    # Barra de Progresso do Dia
-    tarefas = get_cronograma().get(hj, [])
-    feitas = 0 # Lógica futura de persistência
-    if tarefas:
-        prog = 0.0 # Placeholder
-        st.progress(prog, text=f"Progresso Diário: {int(prog*100)}%")
-    
     st.subheader(f"Missão de {dias[hj]}")
     
-    if not tarefas: st.info("🎉 Dia de Descanso ou Simulado Livre!")
+    # Barra de Progresso
+    tarefas = get_cronograma().get(hj, [])
+    if tarefas:
+        st.progress(0, text="Progresso Diário")
+    else:
+        st.info("🎉 Dia de Descanso ou Simulado Livre!")
     
     for t in tarefas:
         # Card TAF
@@ -252,14 +266,12 @@ with abas[0]:
             if st.session_state[k_st] == "init":
                 col_btn, _ = st.columns([1,2])
                 if col_btn.button(f"▶️ Iniciar Aula", key=f"btn_{t['id']}"):
-                    with st.spinner("Conectando ao QG da VUNESP..."):
+                    with st.spinner("Gerando Simulado VUNESP..."):
                         q = gerar_simulado(t['m'], t['t'], 6, st.session_state.ctx_provas)
                         if q:
                             st.session_state[k_qz] = q
                             st.session_state[k_st] = "quiz"
                             st.rerun()
-                        else:
-                            st.error("Falha de conexão. Tente novamente.")
 
             # Quiz
             if st.session_state[k_st] == "quiz":
@@ -269,15 +281,15 @@ with abas[0]:
                 with st.form(key=f"frm_{t['id']}"):
                     for i, q in enumerate(qs):
                         st.markdown(f"**{i+1}) {q['pergunta']}**")
-                        resps[i] = st.radio("Sua resposta:", q['opcoes'], key=f"op_{t['id']}_{i}", label_visibility="collapsed")
+                        resps[i] = st.radio("Alternativa:", q['opcoes'], key=f"op_{t['id']}_{i}", label_visibility="collapsed")
                         st.divider()
                     
                     if st.form_submit_button("✅ Finalizar e Corrigir"):
                         acertos, erros_list = 0, []
-                        st.markdown("### 📊 Relatório de Desempenho")
+                        st.markdown("### 📊 Relatório")
                         for i, q in enumerate(qs):
                             try:
-                                # Lógica simples para achar a correta baseada no indice
+                                # Lógica de correção (considera índice 0 = A, 1 = B...)
                                 if q['opcoes'].index(resps[i]) == q['correta']:
                                     st.success(f"Questão {i+1}: Correta! 👏")
                                     acertos += 1
@@ -337,7 +349,6 @@ with abas[1]:
         with st.spinner("Gerando..."):
             res = gerar_simulado(m, tp, 1, st.session_state.ctx_provas)
             if res: st.session_state.qlivre = res[0]
-            else: st.error("Erro na rede.")
     
     if 'qlivre' in st.session_state:
         st.markdown("---")
@@ -345,8 +356,7 @@ with abas[1]:
         st.subheader(q['pergunta'])
         ro = st.radio("Escolha:", q['opcoes'])
         
-        c_check, c_next = st.columns(2)
-        if c_check.button("Conferir Resposta"):
+        if st.button("Conferir Resposta"):
             try:
                 if q['opcoes'].index(ro) == q['correta']: 
                     st.success("ACERTOU! 🎯")
@@ -372,7 +382,7 @@ with abas[2]:
                 st.warning("Escreva algo primeiro.")
             else:
                 with st.spinner("A IA está lendo seu texto..."):
-                    res = gerar_ia_blindada(f"Corrija esta redação como a VUNESP (Nota 0-20). Seja rigoroso na gramática e coerência. Tema: {tema}. Texto: {texto}")
+                    res = gerar_ia_blindada(f"Corrija esta redação como a VUNESP (Nota 0-20). Tema: {tema}. Texto: {texto}")
                     if res: st.markdown(res)
                     else: st.error("Erro de conexão.")
 
@@ -435,7 +445,7 @@ with abas[5]:
         if u1 and st.button("Extrair Data da Prova"):
             txt = extract_text_from_pdf([u1])
             res = gerar_ia_blindada(f"Extraia a data da prova deste texto e retorne APENAS um JSON {{'data': 'YYYY-MM-DD'}}: {txt[:5000]}")
-            d = limpar_json(res)
+            d = limpar_json_inteligente(res)
             if d:
                 st.session_state.data_prova = datetime.strptime(d['data'], "%Y-%m-%d").date()
                 st.success("Data Atualizada com Sucesso!")
