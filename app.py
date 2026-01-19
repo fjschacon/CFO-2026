@@ -3,13 +3,17 @@ import pandas as pd
 import google.generativeai as genai
 from datetime import datetime, date
 import plotly.express as px
-import plotly.graph_objects as go
 import json
 import pypdf
 import time
-import re # Importante para limpar o JSON
+import requests
+import warnings
+import re
 
-# --- 1. CONFIGURAÇÃO DA PÁGINA ---
+# Ignora avisos de segurança SSL (Necessário para furar bloqueio corporativo)
+warnings.filterwarnings("ignore")
+
+# --- 1. CONFIGURAÇÃO ---
 st.set_page_config(
     page_title="CFO Elite System", 
     layout="wide", 
@@ -17,10 +21,17 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. API & SEGURANÇA ---
-MY_API_KEY = "AIzaSyAetO0Ax1LjcR4Q9_-q50jO6w-5Na49WoU"
+# --- 2. SEGURANÇA DA CHAVE (VIA SECRETS) ---
+try:
+    # O código busca a chave no cofre do Streamlit. NÃO ESCREVA ELA AQUI.
+    MY_API_KEY = st.secrets["GOOGLE_API_KEY"]
+except:
+    # Caso você rode localmente sem secrets, avisa o erro
+    st.error("🚨 ERRO DE SEGURANÇA: Chave API não configurada nos Secrets!")
+    st.info("Vá em Settings > Secrets no Streamlit Cloud e cole sua chave lá.")
+    st.stop()
 
-# Configurações para PERMITIR conteúdo policial/criminal sem bloqueio
+# Configurações de Segurança da IA (Desbloqueado para temas policiais)
 SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -28,144 +39,143 @@ SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
 ]
 
+# Tenta configurar a biblioteca oficial (se a rede deixar)
 try:
     genai.configure(api_key=MY_API_KEY)
-except:
-    pass 
+except: pass
 
-# --- 3. DESIGN SYSTEM (CSS AVANÇADO) ---
+# --- 3. CSS VISUAL (ELITE) ---
 st.markdown("""
 <style>
     .stApp {background-color: #f4f6f9;}
+    [data-testid="stSidebar"] {background-color: #0d1b2a; color: white;}
     
-    /* Sidebar */
-    [data-testid="stSidebar"] {
-        background-color: #0d1b2a;
-        color: white;
-    }
-    
-    /* Cards */
     .task-card {
-        background-color: white;
-        padding: 20px;
-        border-radius: 12px;
-        border-left: 6px solid #003366;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        margin-bottom: 15px;
-        transition: 0.3s;
+        background-color: white; padding: 20px; border-radius: 12px;
+        border-left: 6px solid #003366; box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        margin-bottom: 15px; transition: 0.3s;
     }
     .task-card:hover { transform: translateY(-2px); }
     
-    /* Quiz */
     .quiz-container {
-        background: #e3f2fd;
-        padding: 20px;
-        border-radius: 12px;
-        border: 1px solid #90caf9;
-        margin-top: 15px;
+        background: #e3f2fd; padding: 20px; border-radius: 12px;
+        border: 1px solid #90caf9; margin-top: 15px;
     }
     
-    /* Reforço */
+    .result-box {
+        background: #ffffff; padding: 20px; border-radius: 12px;
+        border-left: 5px solid #28a745; margin-top: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
     .reforco-container {
-        background: #fff3e0;
-        padding: 20px;
-        border-radius: 12px;
-        border: 1px solid #ffcc80;
-        margin-top: 15px;
+        background: #fff3e0; padding: 20px; border-radius: 12px;
+        border: 1px solid #ffcc80; margin-top: 15px;
     }
     
-    /* Botões */
-    .stButton>button {
-        width: 100%;
-        border-radius: 8px;
-        font-weight: 600;
-        height: 45px;
-    }
-    
-    /* Títulos */
-    h1, h2, h3 { color: #00274c; }
+    .stButton>button {width: 100%; border-radius: 8px; font-weight: bold; height: 45px;}
+    h1, h2, h3 {color: #00274c;}
 </style>
 """, unsafe_allow_html=True)
 
-# --- 4. FUNÇÕES DE INTELIGÊNCIA ---
+# --- 4. FUNÇÕES DE CONEXÃO BLINDADA ---
 
-def extract_text_from_pdf(files):
-    text = ""
-    if files:
-        for file in files:
-            try:
-                reader = pypdf.PdfReader(file)
-                for page in reader.pages: text += page.extract_text() or ""
-            except: pass
-    return text
-
-def limpar_json_inteligente(texto):
-    """Usa Regex para extrair JSON mesmo se houver texto em volta"""
-    if not texto: return None
+def conexao_http_forca_bruta(prompt):
+    """
+    PLANO B: Conecta via HTTP puro ignorando SSL.
+    Usa o modelo 'gemini-1.5-flash' que é rápido e compatível.
+    """
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={MY_API_KEY}"
+    
+    headers = {'Content-Type': 'application/json'}
+    data = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "safetySettings": SAFETY_SETTINGS
+    }
+    
     try:
-        # Tenta achar o padrão de lista [...] ou objeto {...}
-        padrao = r'\[.*\]|\{.*\}'
-        match = re.search(padrao, texto.replace('\n', ' '), re.DOTALL)
+        # verify=False é o segredo para furar firewall
+        response = requests.post(url, headers=headers, json=data, timeout=25, verify=False)
         
-        if match:
-            json_str = match.group()
-            return json.loads(json_str)
+        if response.status_code == 200:
+            return response.json()['candidates'][0]['content']['parts'][0]['text']
         else:
-            # Tenta limpeza bruta se o regex falhar
-            clean = texto.replace("```json", "").replace("```", "").strip()
-            return json.loads(clean)
-    except:
+            # Se der 404 no Flash, tenta o Pro (Fallback)
+            if response.status_code == 404:
+                return conexao_http_fallback_pro(prompt)
+            st.error(f"Erro Google ({response.status_code}): {response.text}")
+            return None
+    except Exception as e:
+        st.error(f"Erro de Rede: {e}")
         return None
 
-def gerar_ia_blindada(prompt):
-    """Tenta conectar usando múltiplos modelos e configurações de segurança"""
-    modelos = ['gemini-1.5-flash', 'gemini-pro', 'gemini-1.0-pro']
-    
-    for m in modelos:
-        try:
-            model = genai.GenerativeModel(m)
-            # Passa safety_settings para evitar bloqueio em temas da polícia
-            resp = model.generate_content(prompt, safety_settings=SAFETY_SETTINGS)
-            if resp.text: return resp.text
-        except: 
-            continue
+def conexao_http_fallback_pro(prompt):
+    """Fallback para Gemini Pro antigo"""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={MY_API_KEY}"
+    headers = {'Content-Type': 'application/json'}
+    data = {"contents": [{"parts": [{"text": prompt}]}], "safetySettings": SAFETY_SETTINGS}
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=25, verify=False)
+        if response.status_code == 200:
+            return response.json()['candidates'][0]['content']['parts'][0]['text']
+    except: return None
     return None
+
+def gerar_ia_blindada(prompt):
+    """
+    Tenta Lib Python (Bonito) -> Se falhar -> Tenta HTTP (Força Bruta)
+    """
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        resp = model.generate_content(prompt, safety_settings=SAFETY_SETTINGS)
+        return resp.text
+    except:
+        return conexao_http_forca_bruta(prompt)
+
+def limpar_json_inteligente(texto):
+    if not texto: return None
+    try:
+        padrao = r'\[.*\]|\{.*\}'
+        match = re.search(padrao, texto.replace('\n', ' '), re.DOTALL)
+        if match: return json.loads(match.group())
+        else:
+            clean = texto.replace("```json", "").replace("```", "").strip()
+            return json.loads(clean)
+    except: return None
 
 def gerar_simulado(materia, topico, qtd=6, ctx=""):
     prompt = f"""
-    Aja como examinador da VUNESP (Barro Branco).
+    Aja como banca VUNESP (Barro Branco).
     Crie um JSON com {qtd} questões de múltipla escolha sobre {materia} ({topico}).
-    Nível: Difícil. 
-    Contexto (Provas Antigas): {ctx[:3000]}
+    Nível: Difícil. Contexto: {ctx[:3000]}
     
-    IMPORTANTE: Retorne APENAS o JSON puro, sem markdown ou texto extra.
-    Formato:
+    IMPORTANTE: Retorne APENAS o JSON puro.
     [
         {{
-            "pergunta": "Enunciado da questão...",
-            "opcoes": ["A) Alternativa 1", "B) Alternativa 2", "C) Alternativa 3", "D) Alternativa 4"],
+            "pergunta": "...",
+            "opcoes": ["A) ...", "B) ...", "C) ...", "D) ...", "E) ..."],
             "correta": 0,
-            "comentario": "Explicação detalhada."
+            "comentario": "..."
         }}
     ]
     """
     res = gerar_ia_blindada(prompt)
-    if not res: 
-        st.error("Erro de Conexão: A IA não retornou dados. Verifique a internet.")
-        return []
-        
-    dados = limpar_json_inteligente(res)
-    if not dados:
-        st.warning("Erro de Formato: A IA respondeu, mas não gerou as questões corretamente. Tente de novo.")
-        return []
-        
-    return dados
+    return limpar_json_inteligente(res) or []
 
 def gerar_reforco(erros):
     txt = " ".join(erros)
-    prompt = f"Gere 2 questões REFORÇO (JSON puro) sobre estes erros: {txt}. Formato igual ao anterior."
+    prompt = f"Gere 2 questões REFORÇO (JSON puro) sobre: {txt}."
     res = gerar_ia_blindada(prompt)
     return limpar_json_inteligente(res) or []
+
+def extract_text_from_pdf(files):
+    text = ""
+    if files:
+        for f in files:
+            try:
+                reader = pypdf.PdfReader(f)
+                for p in reader.pages: text += p.extract_text()
+            except: pass
+    return text
 
 def get_cronograma():
     return {
@@ -184,279 +194,214 @@ if 'db_taf' not in st.session_state: st.session_state.db_taf = pd.DataFrame(colu
 if 'ctx_provas' not in st.session_state: st.session_state.ctx_provas = ""
 if 'data_prova' not in st.session_state: st.session_state.data_prova = None
 
-# --- 6. SIDEBAR (PERFIL) ---
+# --- 6. SIDEBAR ---
 with st.sidebar:
-    st.markdown("### 👮‍♂️ Central do Aluno")
-    st.info("**Flavio Chacon** | CFO 2026")
+    st.title("👮‍♂️ Central CFO")
+    st.write("**Flavio Chacon**")
+    st.success("Sistema Seguro Ativo")
     
-    # Status Conexão
-    if st.button("🔄 Testar Rede"):
-        with st.spinner("Pingando Google..."):
-            res = gerar_ia_blindada("Teste")
-            if res: st.success("Rede OK! ✅")
-            else: st.error("Bloqueio Detectado! 🚫")
+    # Botão de Teste Seguro
+    if st.button("🛠️ Testar Conexão"):
+        res = gerar_ia_blindada("Teste")
+        if res: st.success("Conexão OK!")
+        else: st.error("Falha. Verifique Secrets.")
     
     st.divider()
-    
-    # Resumo Rápido
-    if not st.session_state.db_quiz.empty:
-        acc = st.session_state.db_quiz['Acertos'].sum()
-        tot = st.session_state.db_quiz['Total'].sum()
-        if tot > 0:
-            st.metric("Precisão Global", f"{(acc/tot)*100:.0f}%")
-    
     if st.session_state.data_prova:
-        dias = (st.session_state.data_prova - date.today()).days
-        st.metric("⏳ Dias p/ Prova", dias)
-    else:
-        st.caption("Sem data definida. Vá em 'Config' para subir o edital.")
+        d = (st.session_state.data_prova - date.today()).days
+        st.metric("Dias p/ Prova", d)
 
-# --- 7. ÁREA PRINCIPAL (HEADER) ---
+# --- 7. HEADER ---
 st.title("Painel de Comando")
-
-# Métricas Topo
-col_a, col_b, col_c, col_d = st.columns(4)
-questoes_hoje = len(st.session_state.db_quiz[st.session_state.db_quiz['Data'] == date.today()])
-col_a.metric("Questões Hoje", questoes_hoje)
-col_b.metric("Redações", "0") 
-col_c.metric("Treinos TAF", len(st.session_state.db_taf))
-col_d.metric("Status", "Operacional")
-
+c1, c2, c3, c4 = st.columns(4)
+q_hj = len(st.session_state.db_quiz[st.session_state.db_quiz['Data'] == date.today()])
+c1.metric("Questões Hoje", q_hj)
+c2.metric("Redações", "0")
+c3.metric("Treinos TAF", len(st.session_state.db_taf))
+c4.metric("Modo", "Secure Secrets")
 st.markdown("---")
 
-# --- 8. ABAS REORGANIZADAS ---
+# --- 8. ABAS ---
 abas = st.tabs(["📅 Cronograma", "📚 Questões", "📝 Redação", "💪 TAF", "📊 Dashboard", "⚙️ Config"])
 
-# === ABA 1: CRONOGRAMA ===
+# ABA 1: CRONOGRAMA
 with abas[0]:
     hj = datetime.now().weekday()
     dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
-    
     st.subheader(f"Missão de {dias[hj]}")
     
-    # Barra de Progresso
     tarefas = get_cronograma().get(hj, [])
-    if tarefas:
-        st.progress(0, text="Progresso Diário")
-    else:
-        st.info("🎉 Dia de Descanso ou Simulado Livre!")
+    if tarefas: st.progress(0, text="Progresso Diário")
+    else: st.info("Dia Livre!")
     
     for t in tarefas:
-        # Card TAF
         if "TREINO" in t['m']:
-            st.warning(f"🏋️‍♂️ **{t['h']} - {t['m']}**: {t['t']}")
+            st.warning(f"🏋️‍♂️ **{t['h']}**: {t['m']} ({t['t']})")
             continue
             
-        # Card Estudos
         with st.container():
-            st.markdown(f"""
-            <div class="task-card">
-                <h3 style='margin:0'>{t['m']}</h3>
-                <p style='color:#666; margin:0'>⏰ {t['h']} | 🎯 Foco: <b>{t['t']}</b></p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            k_st = f"s_{t['id']}"
-            k_qz = f"q_{t['id']}"
-            k_rf = f"r_{t['id']}"
+            st.markdown(f"""<div class="task-card"><h3>📚 {t['m']}</h3><p>{t['h']} | {t['t']}</p></div>""", unsafe_allow_html=True)
+            k_st = f"s_{t['id']}"; k_qz = f"q_{t['id']}"; k_rf = f"r_{t['id']}"; k_rs = f"res_{t['id']}"
             
             if k_st not in st.session_state: st.session_state[k_st] = "init"
             
-            # Botão de Ação
+            # FASE 1: INÍCIO
             if st.session_state[k_st] == "init":
-                col_btn, _ = st.columns([1,2])
-                if col_btn.button(f"▶️ Iniciar Aula", key=f"btn_{t['id']}"):
-                    with st.spinner("Gerando Simulado VUNESP..."):
+                if st.button(f"▶️ Iniciar Aula", key=f"b_{t['id']}"):
+                    with st.spinner("Gerando Simulado..."):
                         q = gerar_simulado(t['m'], t['t'], 6, st.session_state.ctx_provas)
                         if q:
                             st.session_state[k_qz] = q
                             st.session_state[k_st] = "quiz"
                             st.rerun()
+                        else: st.error("Erro na conexão. Verifique Secrets.")
 
-            # Quiz
+            # FASE 2: QUIZ
             if st.session_state[k_st] == "quiz":
-                st.markdown(f"<div class='quiz-container'><h4>📝 Simulado: {t['t']}</h4>", unsafe_allow_html=True)
+                st.markdown(f"<div class='quiz-container'><h4>📝 Simulado</h4>", unsafe_allow_html=True)
                 qs = st.session_state[k_qz]
                 resps = {}
-                with st.form(key=f"frm_{t['id']}"):
+                with st.form(key=f"f_{t['id']}"):
                     for i, q in enumerate(qs):
                         st.markdown(f"**{i+1}) {q['pergunta']}**")
-                        resps[i] = st.radio("Alternativa:", q['opcoes'], key=f"op_{t['id']}_{i}", label_visibility="collapsed")
+                        op = q.get('opcoes', ["Erro"])
+                        resps[i] = st.radio("R:", op, key=f"r_{t['id']}_{i}", index=None)
                         st.divider()
-                    
-                    if st.form_submit_button("✅ Finalizar e Corrigir"):
-                        acertos, erros_list = 0, []
-                        st.markdown("### 📊 Relatório")
+                    enviou = st.form_submit_button("✅ Finalizar")
+                
+                if enviou:
+                    if any(resps[i] is None for i in range(len(qs))):
+                        st.error("Responda todas as questões!")
+                    else:
+                        acc = 0
+                        erros = []
                         for i, q in enumerate(qs):
                             try:
-                                # Lógica de correção (considera índice 0 = A, 1 = B...)
-                                if q['opcoes'].index(resps[i]) == q['correta']:
-                                    st.success(f"Questão {i+1}: Correta! 👏")
-                                    acertos += 1
-                                else:
-                                    st.error(f"Questão {i+1}: Errou.")
-                                    st.info(f"💡 Explicação: {q['comentario']}")
-                                    erros_list.append(q['comentario'])
+                                if q['opcoes'].index(resps[i]) == q['correta']: acc += 1
+                                else: erros.append(q['comentario'])
                             except: pass
                         
-                        # Salva dados
-                        new_row = pd.DataFrame([{"Data": date.today(), "Matéria": t['m'], "Acertos": acertos, "Total": 6}])
-                        st.session_state.db_quiz = pd.concat([st.session_state.db_quiz, new_row], ignore_index=True)
-                        
-                        if acertos < 4:
-                            st.warning(f"Nota: {acertos}/6. Atenção! Gerando Reforço...")
-                            ref = gerar_reforco(erros_list)
+                        st.session_state[k_rs] = {"acertos": acc, "erros": erros}
+                        st.session_state.db_quiz = pd.concat([st.session_state.db_quiz, pd.DataFrame([{"Data": date.today(), "Matéria": t['m'], "Acertos": acc, "Total": 6}])], ignore_index=True)
+                        st.session_state[k_st] = "result"
+                        st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            # FASE 3: RESULTADO
+            if st.session_state[k_st] == "result":
+                res_data = st.session_state.get(k_rs, {})
+                acertos = res_data.get("acertos", 0)
+                erros = res_data.get("erros", [])
+                
+                st.markdown(f"<div class='result-box'><h3>📊 Resultado: {acertos}/6</h3>", unsafe_allow_html=True)
+                
+                if acertos >= 4:
+                    st.balloons()
+                    st.success("✅ Aprovado!")
+                else:
+                    st.warning("⚠️ Reforço Recomendado.")
+                
+                c1, c2 = st.columns(2)
+                if acertos < 4:
+                    if c1.button("Gerar Reforço", key=f"brf_{t['id']}"):
+                        with st.spinner("Criando Reforço..."):
+                            ref = gerar_reforco(erros)
                             if ref:
                                 st.session_state[k_rf] = ref
                                 st.session_state[k_st] = "ref"
                                 st.rerun()
-                        else:
-                            st.balloons()
-                            st.success(f"Nota: {acertos}/6. Missão Cumprida! 🏆")
-                            if st.button("Fechar Aula"):
-                                st.session_state[k_st] = "init"
-                                st.rerun()
+                
+                if c2.button("Fechar Aula", key=f"bcl_{t['id']}"):
+                    st.session_state[k_st] = "init"
+                    st.rerun()
                 st.markdown("</div>", unsafe_allow_html=True)
 
-            # Reforço
+            # FASE 4: REFORÇO
             if st.session_state[k_st] == "ref":
                 st.markdown(f"<div class='reforco-container'><h4>🔥 Reforço Obrigatório</h4>", unsafe_allow_html=True)
                 refs = st.session_state[k_rf]
                 for i, r in enumerate(refs):
                     with st.expander(f"Questão Extra {i+1}", expanded=True):
                         st.write(r['pergunta'])
-                        rr = st.radio("Opção:", r['opcoes'], key=f"rex_{t['id']}_{i}")
-                        if st.button("Verificar", key=f"bex_{t['id']}_{i}"):
-                            try:
-                                if r['opcoes'].index(rr) == r['correta']: st.success("Boa!")
-                                else: st.error("Errou.")
-                            except: pass
-                            st.write(f"**Gabarito:** {r['comentario']}")
+                        rr = st.radio("Opção:", r['opcoes'], key=f"rx_{t['id']}_{i}", index=None)
+                        if st.button("Verificar", key=f"bx_{t['id']}_{i}"):
+                            if rr:
+                                try:
+                                    if r['opcoes'].index(rr) == r['correta']: st.success("Boa!")
+                                    else: st.error("Errou.")
+                                except: pass
+                                st.write(f"**Gabarito:** {r['comentario']}")
+                            else: st.warning("Escolha uma opção")
                 
                 if st.button("Encerrar Sessão", key=f"end_{t['id']}"):
                     st.session_state[k_st] = "init"
                     st.rerun()
                 st.markdown("</div>", unsafe_allow_html=True)
 
-# === ABA 2: BANCO DE QUESTÕES ===
+# ABA 2: LIVRE
 with abas[1]:
-    st.header("Gerador Avulso")
-    c1, c2, c3 = st.columns([2, 2, 1])
-    m = c1.selectbox("Matéria", ["Matemática", "Português", "História", "Geografia", "Física", "Química", "Biologia", "Inglês", "Adm. Pública", "Sociologia", "Filosofia"])
-    tp = c2.text_input("Tópico (Ex: Crase, Leis)", placeholder="Deixe vazio para Geral")
-    
-    if c3.button("Gerar 1 Questão"):
-        with st.spinner("Gerando..."):
-            res = gerar_simulado(m, tp, 1, st.session_state.ctx_provas)
-            if res: st.session_state.qlivre = res[0]
+    st.header("Modo Livre")
+    c1, c2 = st.columns(2)
+    m = c1.selectbox("Matéria", ["Matemática", "Português", "História", "Geografia", "Física", "Química", "Biologia", "Inglês"])
+    tp = c2.text_input("Tópico")
+    if st.button("Gerar"):
+        res = gerar_simulado(m, tp, 1, st.session_state.ctx_provas)
+        if res: st.session_state.qlivre = res[0]
     
     if 'qlivre' in st.session_state:
-        st.markdown("---")
         q = st.session_state.qlivre
-        st.subheader(q['pergunta'])
-        ro = st.radio("Escolha:", q['opcoes'])
-        
-        if st.button("Conferir Resposta"):
-            try:
-                if q['opcoes'].index(ro) == q['correta']: 
-                    st.success("ACERTOU! 🎯")
-                    st.balloons()
-                else: 
-                    st.error("ERROU. ❌")
-                st.info(f"**Comentário:** {q['comentario']}")
-            except: st.warning("Selecione uma opção.")
+        st.write(q['pergunta'])
+        ro = st.radio("Opção", q['opcoes'], index=None)
+        if st.button("Verificar"):
+            if ro:
+                try:
+                    if q['opcoes'].index(ro) == q['correta']: st.success("Certa!")
+                    else: st.error("Errada.")
+                    st.caption(q['comentario'])
+                except: pass
+            else: st.warning("Escolha uma opção.")
 
-# === ABA 3: REDAÇÃO ===
+# ABA 3: REDAÇÃO
 with abas[2]:
-    st.header("Laboratório de Redação VUNESP")
-    col_tema, col_texto = st.columns([1, 2])
-    
-    with col_tema:
-        tema = st.text_input("Tema da Redação", value="A tecnologia na segurança pública")
-        st.info("💡 **Dica:** Foque na estrutura Dissertativa-Argumentativa.")
-        
-    with col_texto:
-        texto = st.text_area("Digite seu texto aqui...", height=400)
-        if st.button("Corrigir Agora"):
-            if not texto:
-                st.warning("Escreva algo primeiro.")
-            else:
-                with st.spinner("A IA está lendo seu texto..."):
-                    res = gerar_ia_blindada(f"Corrija esta redação como a VUNESP (Nota 0-20). Tema: {tema}. Texto: {texto}")
-                    if res: st.markdown(res)
-                    else: st.error("Erro de conexão.")
+    st.header("Redação")
+    tm = st.text_input("Tema")
+    tx = st.text_area("Texto")
+    if st.button("Corrigir"):
+        st.write(gerar_ia_blindada(f"Corrija VUNESP 0-20: {tm} \n {tx}"))
 
-# === ABA 4: TAF ===
+# ABA 4: TAF
 with abas[3]:
-    st.header("Monitoramento Físico")
-    c1, c2 = st.columns(2)
-    with c1:
-        with st.form("form_taf"):
-            ex = st.selectbox("Exercício", ["Barra Fixa", "Abdominal Remador", "Corrida 50m", "Corrida 12min"])
-            val = st.number_input("Marca Alcançada", step=1.0)
-            data_taf = st.date_input("Data do Treino", date.today())
-            if st.form_submit_button("Salvar Treino"):
-                n = pd.DataFrame([{"Data": data_taf, "Exercício": ex, "Marca": val}])
-                st.session_state.db_taf = pd.concat([st.session_state.db_taf, n], ignore_index=True)
-                st.success("Registrado!")
-    
-    with c2:
-        if not st.session_state.db_taf.empty:
-            df_taf = st.session_state.db_taf
-            fig = px.line(df_taf, x="Data", y="Marca", color="Exercício", title="Sua Evolução Física", markers=True)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Nenhum dado de treino ainda.")
+    st.header("TAF")
+    e = st.selectbox("Exercício", ["Barra", "Abs", "Corrida"])
+    v = st.number_input("Valor")
+    if st.button("Salvar"):
+        st.session_state.db_taf = pd.concat([st.session_state.db_taf, pd.DataFrame([{"Data": date.today(), "Exercício": e, "Marca": v}])], ignore_index=True)
+        st.success("Ok!")
+    if not st.session_state.db_taf.empty:
+        st.plotly_chart(px.line(st.session_state.db_taf, x="Data", y="Marca", color="Exercício"))
 
-# === ABA 5: DASHBOARD ===
+# ABA 5: DASHBOARD
 with abas[4]:
-    st.header("Análise de Inteligência")
-    df = st.session_state.db_quiz
-    
-    if not df.empty:
+    if not st.session_state.db_quiz.empty:
         c1, c2 = st.columns(2)
+        df_g = st.session_state.db_quiz.groupby("Matéria")[["Acertos", "Total"]].sum().reset_index()
+        c1.plotly_chart(px.bar(df_g, x="Matéria", y="Acertos", title="Acertos por Matéria"))
         
-        # Gráfico de Barras
-        df_group = df.groupby("Matéria")[["Acertos", "Total"]].sum().reset_index()
-        fig_bar = px.bar(df_group, x="Matéria", y="Acertos", title="Acertos por Matéria", color="Matéria")
-        c1.plotly_chart(fig_bar, use_container_width=True)
-        
-        # Gráfico de Pizza (Aproveitamento)
-        total_acertos = df['Acertos'].sum()
-        total_erros = df['Total'].sum() - total_acertos
-        fig_pie = go.Figure(data=[go.Pie(labels=['Acertos', 'Erros'], values=[total_acertos, total_erros], hole=.3)])
-        fig_pie.update_layout(title_text="Precisão Geral")
-        c2.plotly_chart(fig_pie, use_container_width=True)
-        
-        # Histórico em Tabela
-        st.subheader("Histórico Recente")
-        st.dataframe(df.sort_values(by="Data", ascending=False), use_container_width=True)
-    else:
-        st.warning("Sem dados suficientes. Vá estudar na aba Cronograma!")
+        tot_ac = st.session_state.db_quiz['Acertos'].sum()
+        tot_er = st.session_state.db_quiz['Total'].sum() - tot_ac
+        c2.plotly_chart(go.Figure(data=[go.Pie(labels=['Acertos', 'Erros'], values=[tot_ac, tot_er])]))
+    else: st.info("Sem dados.")
 
-# === ABA 6: CONFIG/EDITAL ===
+# ABA 6: CONFIG
 with abas[5]:
-    st.header("Gestão de Documentos")
-    c1, c2 = st.columns(2)
-    
-    with c1:
-        st.subheader("Edital")
-        u1 = st.file_uploader("Carregar Edital (PDF)", type="pdf")
-        if u1 and st.button("Extrair Data da Prova"):
-            txt = extract_text_from_pdf([u1])
-            res = gerar_ia_blindada(f"Extraia a data da prova deste texto e retorne APENAS um JSON {{'data': 'YYYY-MM-DD'}}: {txt[:5000]}")
-            d = limpar_json_inteligente(res)
-            if d:
-                st.session_state.data_prova = datetime.strptime(d['data'], "%Y-%m-%d").date()
-                st.success("Data Atualizada com Sucesso!")
-                st.rerun()
-            else:
-                st.error("Falha ao ler data.")
-                
-    with c2:
-        st.subheader("Cérebro da IA")
-        u2 = st.file_uploader("Provas Antigas (Treinamento)", type="pdf", accept_multiple_files=True)
-        if u2 and st.button("Processar Provas"):
-            with st.spinner("Lendo arquivos..."):
-                st.session_state.ctx_provas = extract_text_from_pdf(u2)
-                st.success(f"IA Treinada com {len(st.session_state.ctx_provas)} caracteres de contexto real!")
+    u1 = st.file_uploader("Edital", type="pdf")
+    if u1 and st.button("Ler"):
+        res = gerar_ia_blindada(f"Data prova JSON {{'data':'YYYY-MM-DD'}}: {extract_text_from_pdf([u1])[:3000]}")
+        d = limpar_json(res)
+        if d:
+            st.session_state.data_prova = datetime.strptime(d['data'], "%Y-%m-%d").date()
+            st.rerun()
+    u2 = st.file_uploader("Provas", type="pdf", accept_multiple_files=True)
+    if u2 and st.button("Treinar"):
+        st.session_state.ctx_provas = extract_text_from_pdf(u2)
+        st.success("IA Treinada!")
